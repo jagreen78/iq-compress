@@ -1,3 +1,4 @@
+import re
 import sys
 import os
 import uvicorn
@@ -130,7 +131,8 @@ def make_rle_list(text):
     countlist = ''.join(map(str, encoded_num))
     textlist = ''.join(map(str, encoded_text))
  # 2. 텍스트를 숫자로 매핑
-    mapped_text = map_text_to_single_digit_numbers(''.join(encoded_text))
+    # mapped_text = map_text_to_single_digit_numbers(''.join(encoded_text))
+    mapped_text = map_text_to_single_digit_numbers(textlist)
     longnumber = countlist + mapped_text
 
     return longnumber
@@ -160,13 +162,38 @@ def decrypt_rle_list(bignum_list):
     decoded_text = rle_decode(encoded_num, mapped_text)
 
     return decoded_text
+
 def decrypt_base7(base10number):
     decoded_base7 = base10_to_base7(base10number)
     mapped_text = map_numbers_to_text(decoded_base7)
     return mapped_text
 
+def add_lines(before_str, width):
+    result = ''
+    for i in range(0, len(before_str), width):
+        result += before_str[i:i+width] + '\n'
+    return result
+
+def extract_value(text, key):
+    if text is None:
+        return False
+    
+    # key와 숫자 값을 찾는 정규식
+    regex = r'{}:\s*(\S+)'.format(re.escape(key))
+    
+    match = re.search(regex, text)  # 정규식으로 매칭
+    if match:
+        return match.group(1)  # 찾은 값을 그대로 반환
+    return False  # 값이 없으면 False 반환
+
+
 def _compress(original_text, maxlen):
     sys.set_int_max_str_digits(maxlen)
+    split_text = original_text.split(']')
+
+    if len(split_text)>1:
+        original_text = split_text[1]
+
     text = original_text.replace('\n', '')
     result = -1
     method = -1
@@ -205,21 +232,36 @@ def _compress(original_text, maxlen):
         print("Original number length:", len(str(original_text)))
         print("Compressed value length:", len(str(base127_value)))
 
+    if len(split_text)>1:
+        result = split_text[0]+" ]"+result
+
     return method,result
         #마지막 엔터는 안쳐야 함.
 
 def _decompress(compressed_text,method_num, maxlen):
     sys.set_int_max_str_digits(maxlen)
-    
+    remove_header = compressed_text
+    if compressed_text.startswith('[ width: '):
+       index = compressed_text.find(']')
+      
+       remaining = compressed_text[index + 1:]  # 나머지 부분
+       remove_header = remaining
+
     method = METHOD[method_num]
 
-    decoded_base10 = decode_from_base127(compressed_text)
+    decoded_base10 = decode_from_base127(remove_header)
 
     if method == "RLE":
         ascii_text = decrypt_rle_list(str(decoded_base10))
     
     elif method == "BASE7":
         ascii_text = decrypt_base7(decoded_base10)
+
+    if compressed_text.startswith('[ width: '):
+       index = compressed_text.find(']')
+       first_part = compressed_text[:index]
+       ascii_text = first_part + ' ]'+ascii_text
+
     return ascii_text
 
 
@@ -240,15 +282,17 @@ app = FastAPI()
 
 # CORS 설정
 origins = [
-    "http://localhost:63342",  # 로컬 개발용
+    "https://compresspy.fly.dev",
+    "https://iq6900.com",
+  
 ]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,  
-    allow_credentials=True,  
-    allow_methods=["*"],  
-    allow_headers=["*"],  
+    allow_origins=origins,  # 허용할 도메인
+    allow_credentials=True,  # 쿠키 지원 여부
+    allow_methods=["*"],  # 허용할 HTTP 메서드
+    allow_headers=["*"],  # 허용할 헤더
 )
 
 class CompressData(BaseModel):
@@ -279,7 +323,6 @@ def decompress(data: DeCompressData):
    
     return {"message": "Decompressed ascii art", "result": result}
 
-# if __name__ == "__main__":
-#     uvicorn.run(app, host="0.0.0.0", port=4000)
-#python3 app.py
-#uvicorn app:app --reload
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=4000)
